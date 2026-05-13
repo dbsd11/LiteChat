@@ -13,7 +13,8 @@ import { APP_NAME } from '$lib/constants';
 		DialogFileUploadError,
 		DialogChatError,
 		ServerLoadingSplash,
-		DialogConfirmation
+		DialogConfirmation,
+		ChatFormActionModels
 	} from '$lib/components/app';
 	import * as Alert from '$lib/components/ui/alert';
 	import { setProcessingInfoContext } from '$lib/contexts';

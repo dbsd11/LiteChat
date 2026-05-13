@@ -32,7 +32,18 @@
 	}
 
 	async function handleUrlParams() {
-		await modelsStore.fetch();
+		// Models are already being fetched by use-models-selector onMount
+		// Wait briefly for models to be available using a Promise-based approach
+		await new Promise<void>((resolve) => {
+			const check = () => {
+				if (modelsStore.selectedModelName || modelOptions().length > 0) {
+					resolve();
+				} else {
+					setTimeout(check, 50);
+				}
+			};
+			check();
+		});
 
 		if (modelParam) {
 			const model = modelsStore.findModelByName(modelParam);
@@ -72,13 +83,10 @@
 		conversationsStore.clearActiveConversation();
 		chatStore.clearUIState();
 
-		if (
-			isRouterMode() &&
-			modelsStore.selectedModelName &&
-			!modelsStore.isModelLoaded(modelsStore.selectedModelName)
-		) {
-			modelsStore.clearSelection();
-
+		// If user has a selection but the model is not loaded, don't clear it —
+		// the model selector will handle display, and sending will trigger load.
+		// Only auto-select when there is no selection at all.
+		if (isRouterMode() && !modelsStore.selectedModelName) {
 			const first = modelOptions().find((m) => modelsStore.loadedModelIds.includes(m.model));
 			if (first) {
 				await modelsStore.selectModelById(first.id);

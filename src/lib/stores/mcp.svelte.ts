@@ -30,6 +30,7 @@ import {
 	parseMcpServerSettings,
 	detectMcpTransportFromUrl,
 	getFaviconUrl,
+	getAuthHeaders,
 	uuid
 } from '$lib/utils';
 import {
@@ -108,7 +109,11 @@ class MCPStore {
 	 */
 	async probeProxy(): Promise<void> {
 		try {
-			const response = await fetch(`${base}${CORS_PROXY_ENDPOINT}`, { method: 'HEAD' });
+			const authHeaders = getAuthHeaders();
+			const response = await fetch(`${base}${CORS_PROXY_ENDPOINT}`, {
+				method: 'HEAD',
+				headers: authHeaders
+			});
 			this._proxyAvailable = response.status !== 404;
 		} catch {
 			this._proxyAvailable = false;

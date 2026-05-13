@@ -608,12 +608,12 @@ class ChatStore {
 	): Promise<void> {
 		let effectiveModel = modelOverride;
 
-		if (isRouterMode() && !effectiveModel) {
+		if (!effectiveModel) {
 			const conversationModel = this.getConversationModel(allMessages);
 			effectiveModel = selectedModelName() || conversationModel;
 		}
 
-		if (isRouterMode() && effectiveModel) {
+		if (effectiveModel) {
 			if (!modelsStore.getModelProps(effectiveModel))
 				await modelsStore.fetchModelProps(effectiveModel);
 		}
@@ -1659,10 +1659,8 @@ class ChatStore {
 			value !== undefined && value !== null && value !== '';
 		const apiOptions: Record<string, unknown> = { stream: true, timings_per_token: true };
 
-		if (isRouterMode()) {
-			const modelName = selectedModelName();
-			if (modelName) apiOptions.model = modelName;
-		}
+		const modelName = selectedModelName();
+		if (modelName) apiOptions.model = modelName;
 
 		if (currentConfig.systemMessage) apiOptions.systemMessage = currentConfig.systemMessage;
 

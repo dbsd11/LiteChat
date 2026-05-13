@@ -144,9 +144,10 @@
 								{currentModel}
 								activeId={ms.activeId}
 								sectionHeaderClass="px-2 py-2 text-xs font-semibold text-muted-foreground/60 select-none"
-								orgHeaderClass="px-2 py-2 text-xs font-semibold text-muted-foreground/60 select-none [&:not(:first-child)]:mt-2"
 								onSelect={ms.handleSelect}
 								onInfoClick={ms.handleInfoClick}
+								expandedOrgs={ms.expandedOrgs}
+								onOrgToggle={ms.toggleOrg}
 							/>
 						</div>
 					</div>

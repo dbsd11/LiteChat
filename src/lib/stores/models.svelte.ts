@@ -336,6 +336,8 @@ class ModelsStore {
 	 * This fetches the /models endpoint which returns status info for each model
 	 */
 	async fetchRouterModels(): Promise<void> {
+		if (this.loading) return;
+
 		try {
 			const response = await ModelsService.listRouter();
 			this.routerModels = response.data;
@@ -347,7 +349,7 @@ class ModelsStore {
 				return modelProps?.webui !== false;
 			});
 
-			if (o.length === 1 && this.isModelLoaded(o[0].model)) {
+			if (o.length === 1 && this.isModelLoaded(o[0].model) && !this.selectedModelName) {
 				this.selectModelById(o[0].id);
 			}
 		} catch (error) {
@@ -364,9 +366,22 @@ class ModelsStore {
 	 * since unloaded models return 400 from /props endpoint.
 	 *
 	 * @param modelId - Model identifier to fetch props for
+	 * @param forceRefresh - When true, bypass cache and isModelLoaded guard
 	 * @returns Props data or null if fetch failed or model not loaded
 	 */
-	async fetchModelProps(modelId: string): Promise<ApiLlamaCppServerProps | null> {
+	async fetchModelProps(modelId: string, forceRefresh = false): Promise<ApiLlamaCppServerProps | null> {
+		if (forceRefresh) {
+			// Bypass cache and guards — direct fetch for cases like DialogModelInformation
+			try {
+				const props = await PropsService.fetchForModel(modelId);
+				this.modelPropsCache.set(modelId, props);
+				return props;
+			} catch (error) {
+				console.warn(`Failed to fetch props for model ${modelId}:`, error);
+				return null;
+			}
+		}
+
 		const cached = this.modelPropsCache.get(modelId);
 		if (cached) return cached;
 
@@ -461,8 +476,12 @@ class ModelsStore {
 	 * Select a model for new conversations
 	 */
 	async selectModelById(modelId: string): Promise<void> {
-		if (!modelId || this.updating) return;
-		if (this.selectedModelId === modelId) return;
+		if (!modelId || this.updating) {
+			return;
+		}
+		if (this.selectedModelId === modelId) {
+			return;
+		}
 
 		const option = this.models.find((model) => model.id === modelId);
 		if (!option) throw new Error('Selected model is not available');
@@ -483,7 +502,10 @@ class ModelsStore {
 	 * @param modelName - Model name to select (e.g., "ggml-org/GLM-4.7-Flash-GGUF")
 	 */
 	selectModelByName(modelName: string): void {
-		const option = this.models.find((model) => model.model === modelName);
+		let option = this.models.find((model) => model.model === modelName);
+		if (!option) {
+			option = this.models.find((model) => model.id === modelName);
+		}
 		if (option) {
 			this.selectedModelId = option.id;
 			this.selectedModelName = option.model;

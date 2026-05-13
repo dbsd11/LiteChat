@@ -193,3 +193,11 @@ export { uuid } from './uuid';
 
 // CSS utilities
 export { remToPx } from './css';
+
+// Thinking parameter utilities
+export {
+	ThinkingParamFormat,
+	extractOrgName,
+	getThinkingParamFormat,
+	buildThinkingParams
+} from './thinking-params';

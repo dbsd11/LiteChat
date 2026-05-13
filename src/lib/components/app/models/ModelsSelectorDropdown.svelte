@@ -11,7 +11,7 @@
 		ModelsSelectorList,
 		ModelsSelectorOption
 	} from '$lib/components/app';
-	import type { ModelItem } from './utils';
+	import type { OrgGroupUnified } from './utils';
 
 	interface Props {
 		class?: string;
@@ -44,6 +44,39 @@
 		}
 	});
 
+	// Build a flat list of visible items for keyboard navigation
+	// Items can be ModelItem or OrgGroupUnified (header)
+	type VisibleItem = { type: 'model'; item: import('./utils').ModelItem } | { type: 'org-header'; group: import('./utils').OrgGroupUnified };
+
+	const visibleItems = $derived.by(() => {
+		const items: VisibleItem[] = [];
+		const groups = ms.groupedFilteredOptions;
+
+		for (const group of groups) {
+			if (group.orgName) {
+				items.push({ type: 'org-header', group });
+				if (ms.expandedOrgs.has(group.orgName)) {
+					for (const item of group.items) {
+						items.push({ type: 'model', item });
+					}
+				}
+			} else {
+				// No org name - always show items directly
+				for (const item of group.items) {
+					items.push({ type: 'model', item });
+				}
+			}
+		}
+
+		return items;
+	});
+
+	const highlightedOptionId = $derived.by(() => {
+		if (highlightedIndex < 0 || highlightedIndex >= visibleItems.length) return null;
+		const v = visibleItems[highlightedIndex];
+		return v.type === 'model' ? v.item.option.id : null;
+	});
+
 	$effect(() => {
 		void ms.searchTerm;
 		highlightedIndex = -1;
@@ -59,9 +92,9 @@
 		if (event.key === KeyboardKey.ARROW_DOWN) {
 			event.preventDefault();
 
-			if (ms.filteredOptions.length === 0) return;
+			if (visibleItems.length === 0) return;
 
-			if (highlightedIndex === -1 || highlightedIndex === ms.filteredOptions.length - 1) {
+			if (highlightedIndex === -1 || highlightedIndex === visibleItems.length - 1) {
 				highlightedIndex = 0;
 			} else {
 				highlightedIndex += 1;
@@ -69,22 +102,27 @@
 		} else if (event.key === KeyboardKey.ARROW_UP) {
 			event.preventDefault();
 
-			if (ms.filteredOptions.length === 0) return;
+			if (visibleItems.length === 0) return;
 
 			if (highlightedIndex === -1 || highlightedIndex === 0) {
-				highlightedIndex = ms.filteredOptions.length - 1;
+				highlightedIndex = visibleItems.length - 1;
 			} else {
 				highlightedIndex -= 1;
 			}
 		} else if (event.key === KeyboardKey.ENTER) {
 			event.preventDefault();
 
-			if (highlightedIndex >= 0 && highlightedIndex < ms.filteredOptions.length) {
-				const option = ms.filteredOptions[highlightedIndex];
-
-				ms.handleSelect(option.id);
-			} else if (ms.filteredOptions.length > 0) {
-				highlightedIndex = 0;
+			if (highlightedIndex >= 0 && highlightedIndex < visibleItems.length) {
+				const v = visibleItems[highlightedIndex];
+				if (v.type === 'org-header' && v.group.orgName) {
+					ms.toggleOrg(v.group.orgName);
+				} else if (v.type === 'model') {
+					ms.handleSelect(v.item.option.id);
+				}
+			} else if (visibleItems.length > 0) {
+				// Find first model item
+				const firstModel = visibleItems.findIndex((v) => v.type === 'model');
+				if (firstModel >= 0) highlightedIndex = firstModel;
 			}
 		}
 	}
@@ -197,10 +235,10 @@
 								<p class="px-4 py-3 text-sm text-muted-foreground">No models found.</p>
 							{/if}
 
-							{#snippet modelOption(item: ModelItem, hideOrgName: boolean)}
-								{@const { option, flatIndex } = item}
+							{#snippet modelOption(item: import('./utils').ModelItem, hideOrgName: boolean)}
+								{@const { option } = item}
 								{@const isSelected = currentModel === option.model || ms.activeId === option.id}
-								{@const isHighlighted = flatIndex === highlightedIndex}
+								{@const isHighlighted = highlightedOptionId === option.id}
 								{@const isFav = ms.isFavorite(option.model)}
 
 								<ModelsSelectorOption
@@ -211,7 +249,12 @@
 									{hideOrgName}
 									onSelect={ms.handleSelect}
 									onInfoClick={ms.handleInfoClick}
-									onMouseEnter={() => (highlightedIndex = flatIndex)}
+									onMouseEnter={() => {
+										const idx = visibleItems.findIndex(
+											(v) => v.type === 'model' && v.item.option.id === option.id
+										);
+										if (idx >= 0) highlightedIndex = idx;
+									}}
 									onKeyDown={(event) => {
 										if (event.key === KeyboardKey.ENTER || event.key === KeyboardKey.SPACE) {
 											event.preventDefault();
@@ -229,6 +272,8 @@
 								onSelect={ms.handleSelect}
 								onInfoClick={ms.handleInfoClick}
 								renderOption={modelOption}
+								expandedOrgs={ms.expandedOrgs}
+								onOrgToggle={ms.toggleOrg}
 							/>
 						</div>
 					</DropdownMenuSearchable>

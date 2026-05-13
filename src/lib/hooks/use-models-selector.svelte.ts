@@ -5,10 +5,12 @@ import {
 	modelsLoading,
 	modelsUpdating,
 	selectedModelId,
+	selectedModelName,
 	singleModelName
 } from '$lib/stores/models.svelte';
 import { isRouterMode } from '$lib/stores/server.svelte';
-import { filterModelOptions, groupModelOptions } from '$lib/components/app/models/utils';
+import { filterModelOptions, groupAllByOrg, type OrgGroupUnified } from '$lib/components/app/models/utils';
+import { SvelteSet } from 'svelte/reactivity';
 import type { ModelOption } from '$lib/types/models';
 
 export interface UseModelsSelectorOptions {
@@ -30,11 +32,12 @@ export interface UseModelsSelectorReturn {
 	readonly isHighlightedCurrentModelActive: boolean;
 	readonly isCurrentModelInCache: boolean;
 	readonly filteredOptions: ModelOption[];
-	readonly groupedFilteredOptions: ReturnType<typeof groupModelOptions>;
+	readonly groupedFilteredOptions: OrgGroupUnified[];
 	readonly isLoadingModel: boolean;
 	readonly searchTerm: string;
 	readonly showModelDialog: boolean;
 	readonly infoModelId: string | null;
+	readonly expandedOrgs: SvelteSet<string>;
 	setSearchTerm(value: string): void;
 	setShowModelDialog(value: boolean): void;
 	handleInfoClick(modelName: string): void;
@@ -42,6 +45,7 @@ export interface UseModelsSelectorReturn {
 	handleOpenChange(open: boolean): void;
 	isFavorite(model: string): boolean;
 	getDisplayOption(): ModelOption | undefined;
+	toggleOrg(orgName: string): void;
 }
 
 /**
@@ -63,6 +67,7 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 	const activeId = $derived(selectedModelId());
 	const isRouter = $derived(isRouterMode());
 	const serverModel = $derived(singleModelName());
+	const userSelectedModel = $derived(selectedModelName());
 
 	const currentModel = $derived(opts.currentModel());
 	const useGlobalSelection = $derived(opts.useGlobalSelection?.() ?? false);
@@ -83,9 +88,10 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 	let searchTerm = $state('');
 	let showModelDialog = $state(false);
 	let infoModelId = $state<string | null>(null);
+	const expandedOrgs = new SvelteSet<string>();
 	const filteredOptions = $derived(filterModelOptions(options, searchTerm));
 	const groupedFilteredOptions = $derived(
-		groupModelOptions(filteredOptions, modelsStore.favoriteModelIds, (m) =>
+		groupAllByOrg(filteredOptions, modelsStore.favoriteModelIds, (m) =>
 			modelsStore.isModelLoaded(m)
 		)
 	);
@@ -96,9 +102,17 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 	}
 
 	onMount(() => {
-		modelsStore.fetch().catch((error) => {
-			console.error('Unable to load models:', error);
-		});
+		// In router mode, fetchRouterModels() already fetches /v1/models,
+		// so skip the regular fetch() to avoid duplicate requests
+		if (isRouterMode()) {
+			modelsStore.fetchRouterModels().catch((error) => {
+				console.error('Unable to load router models:', error);
+			});
+		} else {
+			modelsStore.fetch().catch((error) => {
+				console.error('Unable to load models:', error);
+			});
+		}
 	});
 
 	function handleOpenChange(open: boolean) {
@@ -108,6 +122,7 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 			searchTerm = '';
 
 			if (open) {
+				expandedOrgs.clear();
 				modelsStore.fetchRouterModels().then(() => {
 					modelsStore.fetchModalitiesForLoadedModels();
 				});
@@ -116,6 +131,14 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 			opts.onOpenChange?.(open);
 		} else {
 			showModelDialog = open;
+		}
+	}
+
+	function toggleOrg(orgName: string) {
+		if (expandedOrgs.has(orgName)) {
+			expandedOrgs.delete(orgName);
+		} else {
+			expandedOrgs.add(orgName);
 		}
 	}
 
@@ -156,13 +179,15 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 
 	function getDisplayOption(): ModelOption | undefined {
 		if (!isRouter) {
-			const displayModel = serverModel || currentModel;
+			// Priority: user's selection > server-reported model > currentModel prop
+			const displayModel = userSelectedModel || serverModel || currentModel;
 			if (displayModel) {
+				const matched = options.find((o) => o.model === displayModel);
 				return {
-					id: serverModel ? 'current' : 'offline-current',
+					id: matched ? matched.id : (userSelectedModel ? 'user-selected' : 'current'),
 					model: displayModel,
 					name: displayModel.split('/').pop() || displayModel,
-					capabilities: []
+					capabilities: matched?.capabilities ?? []
 				};
 			}
 			return undefined;
@@ -247,6 +272,10 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 		isFavorite(model: string) {
 			return modelsStore.favoriteModelIds.has(model);
 		},
-		getDisplayOption
+		getDisplayOption,
+		get expandedOrgs() {
+			return expandedOrgs;
+		},
+		toggleOrg
 	};
 }

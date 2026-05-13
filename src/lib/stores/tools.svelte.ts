@@ -405,7 +405,13 @@ class ToolsStore {
 			this._error = errorMessage;
 			// 404 from /tools means the server was started without --tools
 			// vLLM backends don't have a /tools endpoint — this is expected
-			if (errorMessage.includes('404') || errorMessage.toLowerCase().includes('not found') || errorMessage.includes("Unexpected token '")) {
+			// Empty response body also indicates non-llama.cpp backend
+			if (
+				errorMessage.includes('404') ||
+				errorMessage.toLowerCase().includes('not found') ||
+				errorMessage.includes("Unexpected token '") ||
+				errorMessage.includes('Unexpected end of JSON')
+			) {
 				this._toolsEndpointUnreachable = true;
 			} else {
 				console.error('[ToolsStore] Failed to fetch built-in tools:', err);

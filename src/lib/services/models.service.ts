@@ -1,5 +1,6 @@
 import { ServerModelStatus } from '$lib/enums';
 import { apiFetch, apiPost } from '$lib/utils';
+import { extractOrgName } from '$lib/utils/thinking-params';
 import type { ParsedModelId } from '$lib/types/models';
 import {
 	MODEL_QUANTIZATION_SEGMENT_RE,
@@ -150,12 +151,12 @@ export class ModelsService {
 			modelPath = modelId;
 		}
 
-		// 2. Extract org name (e.g. `org/model` -> org = "org")
+		// 2. Extract org name — only for `org/model` format (not dash-separated)
+		//    For dash-separated formats, orgName stays null per parseModelId semantics
 		const slashIdx = modelPath.indexOf(MODEL_ID_ORG_SEPARATOR);
 		let modelStr: string;
-
 		if (slashIdx !== MODEL_ID_NOT_FOUND) {
-			result.orgName = modelPath.slice(0, slashIdx);
+			result.orgName = extractOrgName(modelPath);
 			modelStr = modelPath.slice(slashIdx + 1);
 		} else {
 			modelStr = modelPath;

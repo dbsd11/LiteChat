@@ -40,7 +40,7 @@
 	let lastSyncedConversationModel: string | null = null;
 
 	$effect(() => {
-		if (conversationModel && conversationModel !== lastSyncedConversationModel) {
+		if (conversationModel && conversationModel !== lastSyncedConversationModel && !modelsStore.selectedModelName) {
 			lastSyncedConversationModel = conversationModel;
 
 			modelsStore.selectModelByName(conversationModel);
@@ -57,6 +57,11 @@
 		const options = modelOptions();
 
 		if (!isRouter) {
+			// Use user's selected model, fallback to first model
+			const selected = modelsStore.selectedModelName;
+			if (selected && options.some((o) => o.model === selected)) {
+				return selected;
+			}
 			return options.length > 0 ? options[0].model : null;
 		}
 

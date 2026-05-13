@@ -1,6 +1,7 @@
 import { getJsonHeaders } from '$lib/utils/api-headers';
 import { formatAttachmentText } from '$lib/utils/formatters';
 import { isAbortError } from '$lib/utils/abort';
+import { buildThinkingParams } from '$lib/utils/thinking-params';
 import {
 	ATTACHMENT_LABEL_PDF_FILE,
 	ATTACHMENT_LABEL_MCP_PROMPT,
@@ -134,9 +135,27 @@ export class ChatService {
 			// vLLM: include usage stats in the final chunk for accurate token counts
 			stream_options: { include_usage: true },
 			messages: normalizedMessages.map((msg: ApiChatMessageData) => {
+				let content = msg.content;
+
+				// Prepend /no_think prefix when thinking is disabled for user messages
+				// This improves compatibility with models that use the /no_think convention
+				if (msg.role === MessageRole.USER && enableThinking !== true) {
+					if (typeof content === 'string') {
+						content = '/no_think ' + content;
+					} else if (Array.isArray(content)) {
+						// For multipart content, create a new array to avoid mutating original message
+						content = content.map((part: ApiChatMessageContentPart) => {
+							if (part.type === ContentPartType.TEXT) {
+								return { ...part, text: '/no_think ' + part.text };
+							}
+							return part;
+						});
+					}
+				}
+
 				const mapped: ApiChatCompletionRequest['messages'][0] = {
 					role: msg.role,
-					content: msg.content,
+					content,
 					tool_calls: msg.tool_calls,
 					tool_call_id: msg.tool_call_id
 				};
@@ -166,10 +185,17 @@ export class ChatService {
 			requestBody.reasoning_format = ReasoningFormat.NONE;
 		}
 
-		// enable_thinking is nested inside chat_template_kwargs for the server to properly enable thinking
-		requestBody.chat_template_kwargs = {
-			enable_thinking: enableThinking === true
-		};
+		// Build thinking parameters based on model org name
+		// - deepseek models: { thinking: { type: "enabled"/"disabled" } }
+		// - other models: { chat_template_kwargs: { enable_thinking: true/false } }
+		// Fallback to store's selected model when options.model is not provided
+		const modelName = options.model ?? modelsStore.selectedModelName ?? '';
+		const thinkingParams = buildThinkingParams(modelName, enableThinking === true);
+		if (thinkingParams.thinking) {
+			requestBody.thinking = thinkingParams.thinking;
+		} else {
+			requestBody.chat_template_kwargs = thinkingParams.chat_template_kwargs;
+		}
 
 		if (temperature !== undefined) requestBody.temperature = temperature;
 		if (max_tokens !== undefined) {
@@ -434,7 +460,18 @@ export class ChatService {
 		const reader = response.body?.getReader();
 
 		if (!reader) {
-			throw new Error('No response body');
+			// Fallback: try to read as text (some backends don't support streaming)
+			const text = await response.text();
+			try {
+				const parsed = JSON.parse(text);
+				const content = parsed.choices?.[0]?.message?.content;
+				if (content) {
+					onComplete?.(content, undefined, undefined, undefined);
+				}
+			} catch {
+				onComplete?.(text, undefined, undefined, undefined);
+			}
+			return;
 		}
 
 		const decoder = new TextDecoder();
@@ -482,10 +519,6 @@ export class ChatService {
 
 			const serializedToolCalls = JSON.stringify(aggregatedToolCalls);
 
-			if (import.meta.env.DEV) {
-				console.log('[ChatService] Aggregated tool calls:', serializedToolCalls);
-			}
-
 			if (!serializedToolCalls) {
 				return;
 			}
@@ -496,116 +529,133 @@ export class ChatService {
 		};
 
 		try {
-			let chunk = '';
+			let buffer = '';
 			while (true) {
 				if (abortSignal?.aborted) break;
 
 				const { done, value } = await reader.read();
-				if (done) break;
+				if (done) {
+					break;
+				}
 
 				if (abortSignal?.aborted) break;
 
-				chunk += decoder.decode(value, { stream: true });
-				const lines = chunk.split('\n');
-				chunk = lines.pop() || '';
+				buffer += decoder.decode(value, { stream: true });
 
-				for (const line of lines) {
+				// Split by SSE event separator (\n\n) to ensure we have complete events
+				const events = buffer.split('\n\n');
+				buffer = events.pop() || ''; // keep incomplete event in buffer
+
+				for (const event of events) {
 					if (abortSignal?.aborted) break;
 
-					if (line.startsWith(UrlProtocol.DATA)) {
-						const data = line.slice(6);
-						if (data === '[DONE]') {
-							streamFinished = true;
+					const trimmedEvent = event.replace(/\r/g, '').trim();
+					if (!trimmedEvent) continue;
 
-							continue;
+					// Extract all lines starting with "data:" and concatenate multi-line data
+					let payload = '';
+					for (const line of trimmedEvent.split('\n')) {
+						const trimmedLine = line.trimStart();
+						if (trimmedLine.startsWith(UrlProtocol.DATA)) {
+							const dataContent = trimmedLine.slice(5).trimStart();
+							payload = payload ? payload + dataContent : dataContent;
+						}
+					}
+
+					if (!payload) continue;
+
+					if (payload === '[DONE]') {
+						streamFinished = true;
+						continue;
+					}
+
+					if (!payload.startsWith('{')) continue;
+
+					try {
+						const parsed: ApiChatCompletionStreamChunk = JSON.parse(payload);
+						const choice = parsed.choices?.[0];
+						const content = choice?.delta?.content;
+						// Support both llama.cpp (reasoning_content) and vLLM (reasoning)
+						const reasoningContent =
+							choice?.delta?.reasoning_content || choice?.delta?.reasoning;
+						const toolCalls = choice?.delta?.tool_calls;
+						const timings = parsed.timings;
+						const promptProgress = parsed.prompt_progress;
+
+						// Parse vLLM usage stats from final chunk
+						if (parsed.usage) {
+							const elapsedMs = Date.now() - streamStartTime;
+							const totalTokens = parsed.usage.completion_tokens || 0;
+							usageTimings = {
+								prompt_n: parsed.usage.prompt_tokens,
+								predicted_n: totalTokens,
+								predicted_ms: elapsedMs,
+								predicted_per_second: elapsedMs > 0 ? (totalTokens / elapsedMs) * 1000 : 0
+							};
+							// Also notify with usage-based timings
+							ChatService.notifyTimings(usageTimings, undefined, onTimings);
 						}
 
-						try {
-							const parsed: ApiChatCompletionStreamChunk = JSON.parse(data);
-							const choice = parsed.choices?.[0];
-							const content = choice?.delta?.content;
-							// Support both llama.cpp (reasoning_content) and vLLM (reasoning)
-							const reasoningContent =
-								choice?.delta?.reasoning_content || choice?.delta?.reasoning;
-							const toolCalls = choice?.delta?.tool_calls;
-							const timings = parsed.timings;
-							const promptProgress = parsed.prompt_progress;
-
-							// Parse vLLM usage stats from final chunk
-							if (parsed.usage) {
-								const elapsedMs = Date.now() - streamStartTime;
-								const totalTokens = parsed.usage.completion_tokens || 0;
-								usageTimings = {
-									prompt_n: parsed.usage.prompt_tokens,
-									predicted_n: totalTokens,
-									predicted_ms: elapsedMs,
-									predicted_per_second: elapsedMs > 0 ? (totalTokens / elapsedMs) * 1000 : 0
-								};
-								// Also notify with usage-based timings
-								ChatService.notifyTimings(usageTimings, undefined, onTimings);
-							}
-
-							const chunkModel = ChatService.extractModelName(parsed);
-							if (chunkModel && !modelEmitted) {
-								modelEmitted = true;
-								onModel?.(chunkModel);
-							}
-
-							if (promptProgress) {
-								ChatService.notifyTimings(undefined, promptProgress, onTimings);
-							}
-
-							if (timings) {
-								ChatService.notifyTimings(timings, promptProgress, onTimings);
-								lastTimings = timings;
-							}
-
-							if (content) {
-								finalizeOpenToolCallBatch();
-								aggregatedContent += content;
-								if (!abortSignal?.aborted) {
-									onChunk?.(content);
-								}
-							}
-
-							if (reasoningContent) {
-								finalizeOpenToolCallBatch();
-								fullReasoningContent += reasoningContent;
-								if (!abortSignal?.aborted) {
-									onReasoningChunk?.(reasoningContent);
-								}
-							}
-
-							// Client-side token speed tracking (for backends like vLLM)
-							// vLLM batches many tokens per SSE chunk, so estimate tokens from character count
-							if (content || reasoningContent) {
-								const deltaChars = (content?.length || 0) + (reasoningContent?.length || 0);
-								const estimatedTokens = Math.max(1, Math.ceil(deltaChars / 3)); // ~3 chars per token
-								tokenCount += estimatedTokens;
-								const now = Date.now();
-
-								// Update speed periodically for responsive UI
-								if (!lastTokenSpeedUpdate || now - lastTokenSpeedUpdate >= SPEED_UPDATE_INTERVAL_MS) {
-									lastTokenSpeedUpdate = now;
-
-									if (!timings) {
-										const elapsedMs = now - streamStartTime;
-										// Use average speed (total tokens / elapsed time) — consistent with final stats
-										const speed = elapsedMs > 0 ? (tokenCount / elapsedMs) * 1000 : 0;
-
-										onTimings?.({
-											predicted_n: tokenCount,
-											predicted_ms: elapsedMs,
-											predicted_per_second: speed
-										});
-									}
-								}
-							}
-
-							processToolCallDelta(toolCalls);
-						} catch (e) {
-							console.error('Error parsing JSON chunk:', e);
+						const chunkModel = ChatService.extractModelName(parsed);
+						if (chunkModel && !modelEmitted) {
+							modelEmitted = true;
+							onModel?.(chunkModel);
 						}
+
+						if (promptProgress) {
+							ChatService.notifyTimings(undefined, promptProgress, onTimings);
+						}
+
+						if (timings) {
+							ChatService.notifyTimings(timings, promptProgress, onTimings);
+							lastTimings = timings;
+						}
+
+						if (content) {
+							finalizeOpenToolCallBatch();
+							aggregatedContent += content;
+							if (!abortSignal?.aborted) {
+								onChunk?.(content);
+							}
+						}
+
+						if (reasoningContent) {
+							finalizeOpenToolCallBatch();
+							fullReasoningContent += reasoningContent;
+							if (!abortSignal?.aborted) {
+								onReasoningChunk?.(reasoningContent);
+							}
+						}
+
+						// Client-side token speed tracking (for backends like vLLM)
+						// vLLM batches many tokens per SSE chunk, so estimate tokens from character count
+						if (content || reasoningContent) {
+							const deltaChars = (content?.length || 0) + (reasoningContent?.length || 0);
+							const estimatedTokens = Math.max(1, Math.ceil(deltaChars / 3)); // ~3 chars per token
+							tokenCount += estimatedTokens;
+							const now = Date.now();
+
+							// Update speed periodically for responsive UI
+							if (!lastTokenSpeedUpdate || now - lastTokenSpeedUpdate >= SPEED_UPDATE_INTERVAL_MS) {
+								lastTokenSpeedUpdate = now;
+
+								if (!timings) {
+									const elapsedMs = now - streamStartTime;
+									// Use average speed (total tokens / elapsed time) — consistent with final stats
+									const speed = elapsedMs > 0 ? (tokenCount / elapsedMs) * 1000 : 0;
+
+									onTimings?.({
+										predicted_n: tokenCount,
+										predicted_ms: elapsedMs,
+										predicted_per_second: speed
+									});
+								}
+							}
+						}
+
+						processToolCallDelta(toolCalls);
+					} catch (e) {
+						console.error('Error parsing JSON chunk:', e);
 					}
 				}
 

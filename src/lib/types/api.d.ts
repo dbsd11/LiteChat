@@ -214,6 +214,8 @@ export interface ApiChatCompletionRequest {
 	stream_options?: { include_usage: boolean };
 	// Reasoning parameters
 	reasoning_format?: string;
+	// Deepseek-style thinking parameters: { thinking: { type: 'enabled' | 'disabled' } }
+	thinking?: { type: 'enabled' | 'disabled' };
 	// Chat template kwargs (nested enable_thinking etc.)
 	chat_template_kwargs?: { enable_thinking?: boolean };
 	// Generation parameters

@@ -367,15 +367,16 @@ export class MCPService {
 		const useProxy = config.useProxy ?? false;
 		const requestInit: RequestInit = {};
 
-		if (config.headers) {
-			requestInit.headers = config.useProxy ? buildProxiedHeaders(config.headers) : config.headers;
-		}
-
 		if (useProxy) {
+			// Include Authorization header in proxied headers so it gets forwarded
+			// to the target MCP server (matching /v1/models behavior)
+			const authHeaders = getAuthHeaders();
 			requestInit.headers = {
-				...getAuthHeaders(),
-				...(requestInit.headers as Record<string, string>)
+				...authHeaders,
+				...buildProxiedHeaders({ ...authHeaders, ...config.headers })
 			};
+		} else if (config.headers) {
+			requestInit.headers = config.headers;
 		}
 
 		if (config.credentials) {

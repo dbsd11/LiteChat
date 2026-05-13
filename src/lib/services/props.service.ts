@@ -147,10 +147,14 @@ export class PropsService {
 		try {
 			return await apiFetchWithParams<ApiLlamaCppServerProps>('./props', params, { authOnly: true });
 		} catch (error: any) {
-			// If /props returns 404, the backend is likely not llama.cpp (e.g., vLLM)
+			// If /props returns 404, or empty response (non-llama.cpp backend like vLLM/OpenAI-compatible)
 			// Return fallback props so the webUI can still function
-			if (error?.message?.includes('404') || error?.response?.status === 404) {
-				console.info('[PropsService] /props endpoint not found, using fallback props (non-llama.cpp backend)');
+			if (
+				error?.message?.includes('404') ||
+				error?.response?.status === 404 ||
+				error?.message?.includes('Unexpected end of JSON')
+			) {
+				console.info('[PropsService] /props endpoint not available, using fallback props (non-llama.cpp backend)');
 				return await getFallbackProps();
 			}
 			// For other errors (network, 500, etc.), re-throw
@@ -179,10 +183,14 @@ export class PropsService {
 		try {
 			return await apiFetchWithParams<ApiLlamaCppServerProps>('./props', params, { authOnly: true });
 		} catch (error: any) {
-			// If /props returns 404, the backend is likely not llama.cpp (e.g., vLLM)
+			// If /props returns 404, or empty response (non-llama.cpp backend like vLLM/OpenAI-compatible)
 			// Return fallback props so the webUI can still function
-			if (error?.message?.includes('404') || error?.response?.status === 404) {
-				console.info(`[PropsService] /props endpoint not found for model "${modelId}", using fallback props (non-llama.cpp backend)`);
+			if (
+				error?.message?.includes('404') ||
+				error?.response?.status === 404 ||
+				error?.message?.includes('Unexpected end of JSON')
+			) {
+				console.info(`[PropsService] /props endpoint not available for model "${modelId}", using fallback props (non-llama.cpp backend)`);
 				return await getFallbackProps();
 			}
 			// For other errors (network, 500, etc.), re-throw
