@@ -2,13 +2,11 @@
 node_modules
 bun.lock
 
-# Build artifacts (dist is copied explicitly)
-dist
-
 # Development
 .git
 .claude
 .spec-workflow
+.playwright-mcp
 .playwright-mmp
 .svelte-kit
 
