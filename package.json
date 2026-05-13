@@ -20,7 +20,11 @@
 		"test:ui": "vitest --project=ui",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
-		"cleanup": "rm -rf .svelte-kit build node_modules test-results"
+		"cleanup": "rm -rf .svelte-kit build node_modules test-results",
+		"docker:build": "docker build -t litechat .",
+		"docker:run": "docker run -d -p 3000:80 -e VITE_API_TARGET=${VITE_API_TARGET:-http://localhost:8080} litechat",
+		"docker:up": "docker compose up -d --build",
+		"docker:down": "docker compose down"
 	},
 	"devDependencies": {
 		"@chromatic-com/storybook": "^5.0.0",

@@ -1,0 +1,10 @@
+services:
+  litechat:
+    build: .
+    container_name: litechat
+    ports:
+      - "65534:80"
+    environment:
+      # Backend API target - change this to your actual backend URL
+      - VITE_API_TARGET=http://host.docker.internal:8080
+    restart: unless-stopped

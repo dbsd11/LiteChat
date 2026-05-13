@@ -1,0 +1,32 @@
+# Dependencies
+node_modules
+bun.lock
+
+# Build artifacts (dist is copied explicitly)
+dist
+
+# Development
+.git
+.claude
+.spec-workflow
+.playwright-mmp
+.svelte-kit
+
+# Docs & misc
+docs
+*.md
+demo.png
+
+# Config files not needed in image
+.env.example
+vite.config.ts
+svelte.config.js
+tsconfig.json
+eslint.config.js
+vitest-setup-client.ts
+
+# Directories
+.vscode
+.storybook
+scripts
+tests

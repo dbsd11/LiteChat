@@ -1,0 +1,65 @@
+server {
+    listen       80;
+    server_name  localhost;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # SPA fallback: all non-file requests serve index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API proxy paths - must match vite.config.ts server.proxy config
+    location /v1/ {
+        proxy_pass ${VITE_API_TARGET}/v1/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /props/ {
+        proxy_pass ${VITE_API_TARGET}/props/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /models/ {
+        proxy_pass ${VITE_API_TARGET}/models/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /tools/ {
+        proxy_pass ${VITE_API_TARGET}/tools/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /cors-proxy/ {
+        proxy_pass ${VITE_API_TARGET}/cors-proxy/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /slots/ {
+        proxy_pass ${VITE_API_TARGET}/slots/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Security headers matching Vite dev server
+    add_header Cross-Origin-Embedder-Policy require-corp;
+    add_header Cross-Origin-Opener-Policy same-origin;
+}
